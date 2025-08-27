@@ -4,6 +4,8 @@
     Email: renyf@connect.hku.hk
     Description: [ A python script to create a composite image from a video.]
     All Rights Reserved 2023
+
+    Updated by Yicheng Chen in 08/2025: add transparency control for moving objects
 """
 
 import cv2
@@ -20,12 +22,13 @@ class CompositeMode(Enum):
 
 class CompositeImage:
 
-    def __init__(self, mode, video_path, start_t = 0, end_t = 999, skip_frame = 1):
+    def __init__(self, mode, video_path, start_t = 0, end_t = 999, skip_frame = 1, alpha = 1.0):
         self.video_path = video_path
         self.skip_frame = skip_frame
         self.start_t = start_t
         self.end_t = end_t
         self.mode = mode
+        self.alpha = alpha
 
     def max_variation_update(self, image):
         delta_img = image - self.ave_img
@@ -36,7 +39,8 @@ class CompositeImage:
         diff_mask = abs_delta_norm <= self.abs_diff_norm
         delta_mask = np.stack((delta_mask.T, delta_mask.T, delta_mask.T)).T.astype(np.float32)
         diff_mask = np.stack((diff_mask.T, diff_mask.T, diff_mask.T)).T.astype(np.float32)
-        self.diff_img = self.diff_img * diff_mask + delta_img * delta_mask
+        # Apply transparency control
+        self.diff_img = self.diff_img * diff_mask + delta_img * delta_mask * self.alpha
         self. diff_norm = np.linalg.norm(self.diff_img, axis=2)
         self.abs_diff_norm = np.abs(self.diff_norm)
 
@@ -49,7 +53,9 @@ class CompositeImage:
         delta_mask = np.stack((delta_mask.T, delta_mask.T, delta_mask.T)).T.astype(np.float32)
         min_mask = np.stack((min_mask.T, min_mask.T, min_mask.T)).T.astype(np.float32)
         new_min_img = image * delta_mask + min_mask * cur_min_image
-        self.diff_img = new_min_img - self.ave_img
+        # Apply transparency control
+        diff_contribution = new_min_img - self.ave_img
+        self.diff_img = diff_contribution * self.alpha
 
     import numpy as np
 
@@ -62,26 +68,28 @@ class CompositeImage:
         delta_mask = np.stack((delta_mask, delta_mask, delta_mask), axis=2).astype(np.float32)
         min_mask = np.stack((min_mask, min_mask, min_mask), axis=2).astype(np.float32)
         new_min_img = image * delta_mask + min_mask * cur_min_image
-        self.diff_img = new_min_img - self.ave_img
+        # Apply transparency control
+        diff_contribution = new_min_img - self.ave_img
+        self.diff_img = diff_contribution * self.alpha
 
     def extract_frames(self):
-        # 打开视频文件
+        # Open video file
         if(self.video_path == None):
             return None
         video = cv2.VideoCapture(self.video_path)
-        # 获取视频帧率
+        # Get video frame rate
         fps = video.get(cv2.CAP_PROP_FPS)
-        # 计算开始和结束帧的索引
+        # Calculate start and end frame indices
         start_frame = int(self.start_t * fps)
         end_frame = int(self.end_t * fps)
 
-        # 设置视频的当前帧为开始帧
+        # Set video current frame to start frame
         video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-        frame_count = 0  # 记录提取的帧数
+        frame_count = 0  # Record number of extracted frames
 
         imgs = []
-        # 循环读取视频帧
+        # Loop to read video frames
 
         while video.isOpened() and frame_count <= (end_frame - start_frame):
             ret, frame = video.read()
@@ -89,8 +97,8 @@ class CompositeImage:
                 frame_count += 1
                 if (frame_count % self.skip_frame != 0):
                     continue
-                # 在这里处理每一帧图像（例如保存到文件、显示等）
-                # 这里只打印帧序号
+                # Process each frame here (e.g., save to file, display, etc.)
+                # Here we just record the frame number
                 imgs.append(frame)
 
                 if frame_count > (end_frame - start_frame):
@@ -98,7 +106,7 @@ class CompositeImage:
             else:
                 break
 
-        # 释放视频对象
+        # Release video object
         video.release()
         return imgs
 
@@ -110,7 +118,7 @@ class CompositeImage:
         first_image = image_files[0]
         height, width, _ = first_image.shape
 
-        # 遍历每张图片，将像素值取最大值并合成到空画布上
+        # Iterate through each image, take maximum pixel values and composite them onto the blank canvas
         sum_image = np.zeros((height, width, 3), dtype=np.float32)
         img_num = len(image_files)
 
@@ -152,21 +160,24 @@ parser.add_argument('--mode', default='VAR', choices=['VAR', 'MAX', 'MIN'], help
 parser.add_argument('--start_t', default=0, type=float, help='start time of composite image.')
 parser.add_argument('--end_t',default=999999, type=float, help='end time of composite image.')
 parser.add_argument('--skip_frame', default=1, type=int, help='skip frame when extract frames.')
+parser.add_argument('--alpha', default=1.0, type=float, help='transparency of moving objects (0.0-1.0).')
 
 args = parser.parse_args()
 
-# 读取命令行参数
+# Read command line arguments
 path = args.video_path
 mode = args.mode
 start_t = args.start_t
 end_t = args.end_t
 skip_frame = args.skip_frame
+alpha = args.alpha
 
 print(" -- Load Param: video path", path)
 print(" -- Load Param: mode", mode)
 print(" -- Load Param: start_t", start_t)
 print(" -- Load Param: end_t", end_t)
 print(" -- Load Param: skip_frame", skip_frame)
+print(" -- Load Param: alpha", alpha)
 
 if(mode == 'MAX'):
     mode = CompositeMode.MAX_VALUE
@@ -175,8 +186,11 @@ elif(mode == 'MIN'):
 elif(mode == 'VAR'):
     mode = CompositeMode.MAX_VARIATION
 
+# Validate alpha parameter range
+if alpha < 0.0 or alpha > 1.0:
+    print("Error: alpha must be between 0.0 and 1.0")
+    exit(1)
 
-
-merger = CompositeImage(mode, path,start_t,end_t, skip_frame)
+merger = CompositeImage(mode, path, start_t, end_t, skip_frame, alpha)
 merged_image = merger.merge_images()
 cv2.imwrite('composite_image.jpg', merged_image)
