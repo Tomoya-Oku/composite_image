@@ -6,3 +6,5 @@
 **/.idea
 **.bag
 **/.catkin_workspace
+videos/
+*.jpg
