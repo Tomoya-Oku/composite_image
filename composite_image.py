@@ -161,6 +161,7 @@ parser.add_argument('--start_t', default=0, type=float, help='start time of comp
 parser.add_argument('--end_t',default=999999, type=float, help='end time of composite image.')
 parser.add_argument('--skip_frame', default=1, type=int, help='skip frame when extract frames.')
 parser.add_argument('--alpha', default=1.0, type=float, help='transparency of moving objects (0.0-1.0).')
+parser.add_argument('--output_path', type=str, default='composite_image', help='path to save the output composite image.')
 
 args = parser.parse_args()
 
@@ -171,6 +172,7 @@ start_t = args.start_t
 end_t = args.end_t
 skip_frame = args.skip_frame
 alpha = args.alpha
+output_path = args.output_path
 
 print(" -- Load Param: video path", path)
 print(" -- Load Param: mode", mode)
@@ -193,4 +195,4 @@ if alpha < 0.0 or alpha > 1.0:
 
 merger = CompositeImage(mode, path, start_t, end_t, skip_frame, alpha)
 merged_image = merger.merge_images()
-cv2.imwrite('composite_image.jpg', merged_image)
+cv2.imwrite(f'{output_path}.jpg', merged_image)
